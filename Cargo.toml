@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/gcp-log", "crates/log-entry", "crates/gcp-structured-logging"]
+members = ["crates/gcp-log", "crates/log-entry", "crates/tracing-gcp-formatter"]
 resolver = "2"
 
 [workspace.package]
@@ -7,3 +7,8 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Philippe Vlérick <philippe.vlerick@worldline.com>"]
 license = "MIT"  # Choose your license
+
+[workspace.dependencies]
+chrono = { version = "0.4.44", default-features = false, features = ["serde", "clock"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"

@@ -8,3 +8,6 @@ description = "Shared logging structures and utilities"
 repository = "https://github.com/yourusername/gcp-log"
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true

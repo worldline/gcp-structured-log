@@ -7,7 +7,12 @@ description = "A CLI tool for structured logging on GCP"
 repository = "https://github.com/yourusername/gcp-log"
 
 [dependencies]
+anyhow = "1.0.102"
+serde_json.workspace = true
+chrono.workspace = true
 log-entry = { path = "../log-entry" }
+clap = { version = "4.6.1", features = ["derive"] }
+colored = "3.1.1"
 
 [[bin]]
 name = "gcp-log"

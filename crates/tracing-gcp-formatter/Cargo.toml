@@ -1,5 +1,5 @@
 [package]
-name = "gcp-structured-logging"
+name = "tracing-gcp-formatter"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,6 +8,10 @@ repository = "https://github.com/yourusername/gcp-log"
 license.workspace = true
 
 [dependencies]
+chrono.workspace = true
+serde_json.workspace = true
 log-entry = { path = "../log-entry" }
+tracing = { version = "0.1.44", default-features = false, features = ["log", "std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "fmt"] }
 
 [lib]
