@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/gcp-log", "crates/log-entry", "crates/gcp-structured-logging"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Philippe Vlérick <philippe.vlerick@worldline.com>"]
+license = "MIT"  # Choose your license

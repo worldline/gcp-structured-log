@@ -1,0 +1,13 @@
+[package]
+name = "gcp-structured-logging"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "A Rust library for GCP structured logging"
+repository = "https://github.com/yourusername/gcp-log"
+license.workspace = true
+
+[dependencies]
+log-entry = { path = "../log-entry" }
+
+[lib]

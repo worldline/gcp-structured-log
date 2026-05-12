@@ -1,0 +1,14 @@
+[package]
+name = "gcp-log"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "A CLI tool for structured logging on GCP"
+repository = "https://github.com/yourusername/gcp-log"
+
+[dependencies]
+log-entry = { path = "../log-entry" }
+
+[[bin]]
+name = "gcp-log"
+path = "src/main.rs"
