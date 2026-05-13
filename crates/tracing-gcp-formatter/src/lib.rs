@@ -1,9 +1,14 @@
 use std::io::Write;
 
 use chrono::Utc;
-use log_entry::{Severity, SimplifiedLogEntry, SourceLocation};
 use tracing::{Level, Subscriber, field::Visit};
 use tracing_subscriber::{Layer, fmt::MakeWriter};
+
+use crate::models::{Severity, SimplifiedLogEntry, SourceLocation};
+
+mod models {
+    include!(concat!(env!("OUT_DIR"), "/models.rs"));
+}
 
 pub struct GCPFormattingLayer<W: for<'a> MakeWriter<'a> + 'static> {
     make_writer: W,
@@ -17,8 +22,6 @@ where
         Self { make_writer }
     }
 }
-
-pub mod log_entry;
 
 impl<S, W> Layer<S> for GCPFormattingLayer<W>
 where
