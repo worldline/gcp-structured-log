@@ -7,8 +7,7 @@ use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Parser;
 use colored::Colorize;
-
-use log_entry::{Severity, SimplifiedLogEntry};
+use tracing_gcp_formatter::log_entry::{Severity, SimplifiedLogEntry};
 
 #[derive(Parser)]
 #[command(
