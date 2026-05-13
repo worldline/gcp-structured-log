@@ -18,6 +18,8 @@ where
     }
 }
 
+pub mod log_entry;
+
 impl<S, W> Layer<S> for GCPFormattingLayer<W>
 where
     S: Subscriber,
