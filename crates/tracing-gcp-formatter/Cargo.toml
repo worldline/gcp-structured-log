@@ -3,9 +3,9 @@ name = "tracing-gcp-formatter"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "A Rust library for GCP structured logging"
 repository = "https://github.com/worldline/gcp-structured-log"
-license.workspace = true
 
 [dependencies]
 chrono.workspace = true
@@ -13,5 +13,3 @@ serde.workspace = true
 serde_json.workspace = true
 tracing = { version = "0.1.44", default-features = false, features = ["log", "std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "fmt"] }
-
-[lib]

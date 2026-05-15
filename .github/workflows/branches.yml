@@ -1,0 +1,21 @@
+name: publish-gcp-log
+on:
+  push:
+    branches-ignore:
+      - main
+jobs:
+  Build&Test:
+    runs-on: ubuntu-latest
+    container:
+      image: rust:latest
+    env:
+      CI: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Check
+        run: cargo check --message-format short
+      - name: Build
+        run: cargo build
+      - name: Test
+        run: cargo test

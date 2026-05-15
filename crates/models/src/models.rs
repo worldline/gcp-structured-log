@@ -4,6 +4,7 @@ use std::{borrow::Cow, collections::HashMap, fmt::Display};
 
 /// Google Structured Log Simplfied Format
 // https://docs.cloud.google.com/logging/docs/structured-logging
+#[allow(dead_code)]
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SimplifiedLogEntry<'a> {
     #[serde(default)]
@@ -36,6 +37,7 @@ pub struct SimplifiedLogEntry<'a> {
 
 /// Google Structured Log Format
 /// See https://docs.cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {

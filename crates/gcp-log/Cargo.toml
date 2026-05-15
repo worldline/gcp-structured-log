@@ -3,12 +3,13 @@ name = "gcp-log"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "A CLI tool for structured logging on GCP"
 repository = "https://github.com/yourusername/gcp-log"
 
 [dependencies]
-tracing-gcp-formatter = { path = "../tracing-gcp-formatter" }
 anyhow = "1.0.102"
+serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 clap = { version = "4.6.1", features = ["derive"] }
