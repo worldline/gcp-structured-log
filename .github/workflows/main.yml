@@ -1,7 +1,7 @@
-name: branches
+name: main
 on:
   push:
-    branches-ignore:
+    branches:
       - main
 jobs:
   build_and_test:
