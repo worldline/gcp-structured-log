@@ -31,7 +31,6 @@ where
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        dbg!(&event);
         let mut visitor = EventVisitor::default();
         event.record(&mut visitor);
 
@@ -63,8 +62,6 @@ where
             ),
             ..Default::default()
         };
-
-        dbg!(&log_entry);
 
         let buffer = {
             let mut b = serde_json::to_string(&log_entry).expect("Serializing SimplifiedLogEntry");

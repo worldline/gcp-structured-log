@@ -18,9 +18,6 @@ mod models;
     author = "Philippe Vlérick <philippe.vlerick@worldline.com>"
 )]
 struct Cli {
-    /// Use simplified format; useful for development
-    #[arg(name = "simplified", short = 's', long = "simplified")]
-    simplified: bool,
     /// No coloring in output.
     #[arg(name = "no-color", long = "no-color")]
     no_color: bool,
@@ -30,6 +27,9 @@ struct Cli {
     /// Do not print lines that are not valid
     #[arg(long)]
     strict: bool,
+    /// Use simplified format; useful for development
+    #[arg(name = "simplified", short = 's', long = "simplified")]
+    simplified: bool,
 }
 
 fn main() {
