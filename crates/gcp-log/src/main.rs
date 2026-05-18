@@ -10,10 +10,7 @@ use colored::Colorize;
 
 use crate::models::{Severity, SimplifiedLogEntry};
 
-#[allow(dead_code)]
-mod models {
-    include!(concat!(env!("OUT_DIR"), "/models.rs"));
-}
+mod models;
 
 #[derive(Parser)]
 #[command(
@@ -21,6 +18,9 @@ mod models {
     author = "Philippe Vlérick <philippe.vlerick@worldline.com>"
 )]
 struct Cli {
+    /// Use simplified format; useful for development
+    #[arg(name = "simplified", short = 's', long = "simplified")]
+    simplified: bool,
     /// No coloring in output.
     #[arg(name = "no-color", long = "no-color")]
     no_color: bool,

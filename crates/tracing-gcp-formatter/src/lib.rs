@@ -6,9 +6,7 @@ use tracing_subscriber::{Layer, fmt::MakeWriter};
 
 use crate::models::{Severity, SimplifiedLogEntry, SourceLocation};
 
-mod models {
-    include!(concat!(env!("OUT_DIR"), "/models.rs"));
-}
+mod models;
 
 pub struct GCPFormattingLayer<W: for<'a> MakeWriter<'a> + 'static> {
     make_writer: W,

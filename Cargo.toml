@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/gcp-log", "crates/models", "crates/tracing-gcp-formatter"]
+members = ["crates/gcp-log", "crates/tracing-gcp-formatter"]
 resolver = "2"
 
 [workspace.package]
