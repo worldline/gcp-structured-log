@@ -144,25 +144,30 @@ struct Labels(Option<serde_json::Map<String, serde_json::Value>>);
 
 impl Display for Labels {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.0 {
-            Some(labels) if !labels.is_empty() => write!(
-                f,
-                "{}",
-                format!(
-                    " ({})",
-                    labels
-                        .iter()
-                        .map(|i| {
-                            let value = format!("{}", i.1);
-                            let value = value.trim_matches('"');
-                            format!("{}={value}", i.0,)
-                        })
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
-            ),
-            _ => Ok(()),
+        if let Some(labels) = &self.0
+            && !labels.is_empty()
+        {
+            write!(f, " (")?;
+            let mut first = true;
+
+            for (key, value) in labels {
+                if !first {
+                    write!(f, ", ")?;
+                }
+
+                let val = match value {
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => value.to_string(),
+                };
+
+                write!(f, "{}={}", key, val)?;
+                first = false;
+            }
+
+            write!(f, ")")?;
         }
+
+        Ok(())
     }
 }
 
