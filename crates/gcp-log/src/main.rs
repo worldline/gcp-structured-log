@@ -14,8 +14,7 @@ mod models;
 
 #[derive(Parser)]
 #[command(
-    version = "0.1",
-    author = "Philippe Vlérick <philippe.vlerick@worldline.com>"
+    version = env!("CARGO_PKG_VERSION"),
 )]
 struct Cli {
     /// No coloring in output.
