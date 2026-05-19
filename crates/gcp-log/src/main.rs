@@ -1,5 +1,5 @@
 use std::{
-    fmt::Display,
+    fmt::{Display, Formatter},
     io::{BufRead, Write, stdout},
 };
 
@@ -8,7 +8,7 @@ use chrono::SecondsFormat;
 use clap::Parser;
 use colored::Colorize;
 
-use crate::models::{Severity, SimplifiedLogEntry};
+use crate::models::{SimplifiedLogEntry, SourceLocation};
 
 mod models;
 
@@ -72,65 +72,126 @@ fn parse(line: &str) -> anyhow::Result<SimplifiedLogEntry<'_>> {
 }
 
 fn print_line(entry: SimplifiedLogEntry, color: bool, emoji: bool) -> String {
+    let message = if color {
+        entry.message.cyan()
+    } else {
+        entry.message.normal()
+    };
+
     format!(
-        "[{}] {}: {}{}",
+        "[{}] {}: {}{}{}",
         entry.time.to_rfc3339_opts(SecondsFormat::Millis, true),
-        format_severity(&entry.severity, color, emoji),
-        entry.message,
-        format_labels(entry.labels),
+        Severity::new(&entry.severity, color, emoji),
+        message,
+        Labels(entry.labels),
+        Sources(entry.source_location),
     )
 }
 
-fn format_severity(severity: &Severity, color: bool, emoji: bool) -> String {
-    fn severity_emoji(severity: &Severity, emoji: bool) -> &'static str {
-        match (severity, emoji) {
-            (Severity::Default, true) => "🐾 ",
-            (Severity::Debug, true) => "🪲 ",
-            (Severity::Info, true) => "ℹ️  ",
-            (Severity::Warning, true) => "⚠️  ",
-            (Severity::Error, true) => "⛔ ",
-            (_, true) => "🐼 ",
-            _ => "",
+struct Severity<'a> {
+    severity: &'a models::Severity,
+    emoji: bool,
+    color: bool,
+}
+
+impl<'a> Severity<'a> {
+    fn new(severity: &'a models::Severity, color: bool, emoji: bool) -> Self {
+        Self {
+            severity,
+            color,
+            emoji,
         }
     }
-
-    fn color_severity(severity: &Severity, color: bool) -> String {
-        let base = format!("{severity}");
-        let base = match (severity, color) {
-            (Severity::Default, true) => base.white(),
-            (Severity::Debug, true) => base.yellow(),
-            (Severity::Info, true) => base.cyan(),
-            (Severity::Warning, true) => base.magenta(),
-            (Severity::Error, true) => base.red(),
-            _ => base.normal(),
-        };
-        base.to_string()
-    }
-
-    format!(
-        "{}{}",
-        severity_emoji(severity, emoji),
-        color_severity(severity, color)
-    )
 }
 
-fn format_labels(labels: Option<serde_json::Map<String, serde_json::Value>>) -> String {
-    match labels {
-        Some(labels) if !labels.is_empty() => format!(
-            " ({})",
-            labels
-                .iter()
-                .map(|i| {
-                    format!(
-                        "{}={}",
-                        i.0,
-                        i.1.as_str().expect("json value is not a string").to_owned(),
-                    )
-                })
-                .collect::<Vec<String>>()
-                .join(", ")
-        ),
-        _ => "".to_owned(),
+impl<'a> Display for Severity<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        fn severity_emoji(severity: &models::Severity, emoji: bool) -> &'static str {
+            match (severity, emoji) {
+                (models::Severity::Default, true) => "🐾 ",
+                (models::Severity::Debug, true) => "🪲 ",
+                (models::Severity::Info, true) => "ℹ️  ",
+                (models::Severity::Warning, true) => "⚠️  ",
+                (models::Severity::Error, true) => "⛔ ",
+                (_, true) => "🐼 ",
+                _ => "",
+            }
+        }
+
+        fn color_severity(severity: &models::Severity, color: bool) -> String {
+            let base = format!("{severity}");
+            let base = match (severity, color) {
+                (models::Severity::Default, true) => base.white(),
+                (models::Severity::Debug, true) => base.yellow(),
+                (models::Severity::Info, true) => base.cyan(),
+                (models::Severity::Warning, true) => base.magenta(),
+                (models::Severity::Error, true) => base.red(),
+                _ => base.normal(),
+            };
+            base.to_string()
+        }
+
+        write!(
+            f,
+            "{}{}",
+            severity_emoji(self.severity, self.emoji),
+            color_severity(self.severity, self.color)
+        )
+    }
+}
+
+struct Labels(Option<serde_json::Map<String, serde_json::Value>>);
+
+impl Display for Labels {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Some(labels) if !labels.is_empty() => write!(
+                f,
+                "{}",
+                format!(
+                    " ({})",
+                    labels
+                        .iter()
+                        .map(|i| {
+                            let value = format!("{}", i.1);
+                            let value = value.trim_matches('"');
+                            format!("{}={value}", i.0,)
+                        })
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            ),
+            _ => Ok(()),
+        }
+    }
+}
+
+struct Sources(Option<SourceLocation>);
+
+impl Display for Sources {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Some(source_location) => {
+                let mut parts = Vec::new();
+
+                if let Some(file) = &source_location.file {
+                    parts.push(format!("file={}", file));
+                }
+                if let Some(line) = &source_location.line {
+                    parts.push(format!("line={}", line));
+                }
+                if let Some(function) = &source_location.function {
+                    parts.push(format!("function={}", function));
+                }
+
+                if parts.is_empty() {
+                    write!(f, "")
+                } else {
+                    write!(f, " ({})", parts.join(", "))
+                }
+            }
+            None => Ok(()),
+        }
     }
 }
 
@@ -180,11 +241,11 @@ mod test {
         process_lines(input.iter(), &mut output, true, true, false);
 
         assert_eq!(
-            "[2026-05-11T13:32:04.598Z] \u{1f43e} \u{1b}[37mTRACE\u{1b}[0m: Trace
-[2026-05-11T13:32:04.598Z] \u{1fab2} \u{1b}[33mDEBUG\u{1b}[0m: Debug
-[2026-05-11T13:32:04.598Z] \u{2139}\u{fe0f}  \u{1b}[36m INFO\u{1b}[0m: Info
-[2026-05-11T13:32:04.598Z] \u{26a0}\u{fe0f}  \u{1b}[35m WARN\u{1b}[0m: Warn
-[2026-05-11T13:32:04.598Z] \u{26d4} \u{1b}[31mERROR\u{1b}[0m: Error
+            "[2026-05-11T13:32:04.598Z] \u{1f43e} \u{1b}[37mTRACE\u{1b}[0m: \u{1b}[36mTrace\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{1fab2} \u{1b}[33mDEBUG\u{1b}[0m: \u{1b}[36mDebug\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{2139}\u{fe0f}  \u{1b}[36m INFO\u{1b}[0m: \u{1b}[36mInfo\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{26a0}\u{fe0f}  \u{1b}[35m WARN\u{1b}[0m: \u{1b}[36mWarn\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{26d4} \u{1b}[31mERROR\u{1b}[0m: \u{1b}[36mError\u{1b}[0m
 The quick brown fox
 ",
             String::from_utf8_lossy(&output)
@@ -234,11 +295,11 @@ The quick brown fox
         process_lines(input.iter(), &mut output, true, false, false);
 
         assert_eq!(
-            "[2026-05-11T13:32:04.598Z] \u{1b}[37mTRACE\u{1b}[0m: Trace
-[2026-05-11T13:32:04.598Z] \u{1b}[33mDEBUG\u{1b}[0m: Debug
-[2026-05-11T13:32:04.598Z] \u{1b}[36m INFO\u{1b}[0m: Info
-[2026-05-11T13:32:04.598Z] \u{1b}[35m WARN\u{1b}[0m: Warn
-[2026-05-11T13:32:04.598Z] \u{1b}[31mERROR\u{1b}[0m: Error
+            "[2026-05-11T13:32:04.598Z] \u{1b}[37mTRACE\u{1b}[0m: \u{1b}[36mTrace\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{1b}[33mDEBUG\u{1b}[0m: \u{1b}[36mDebug\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{1b}[36m INFO\u{1b}[0m: \u{1b}[36mInfo\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{1b}[35m WARN\u{1b}[0m: \u{1b}[36mWarn\u{1b}[0m
+[2026-05-11T13:32:04.598Z] \u{1b}[31mERROR\u{1b}[0m: \u{1b}[36mError\u{1b}[0m
 The quick brown fox
 ",
             String::from_utf8_lossy(&output)

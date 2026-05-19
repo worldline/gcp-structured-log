@@ -5,4 +5,5 @@ cargo watch \
   -s 'cargo check --message-format short' \
   -s 'cargo clippy --color always --all-targets' \
   -x build \
-  -x test
+  -x test \
+  -s 'cargo build -p gcp-log --release'

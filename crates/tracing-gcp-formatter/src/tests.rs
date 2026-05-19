@@ -19,7 +19,7 @@ fn info_simple() {
     info!("Lorem ipsum");
 
     assert_eq!(
-        r#"{"severity":"INFO","message":"Lorem ipsum","time":"1970-01-01T00:00:00Z","logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":19,"function":"tracing_gcp_formatter::tests"}}"#,
+        r#"{"severity":"INFO","message":"Lorem ipsum","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","pid":1},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":19,"function":"tracing_gcp_formatter::tests"}}"#,
         writer.output()
     );
 }
@@ -33,7 +33,7 @@ fn warn_with_fields() {
     warn!(foo = "bar", qux = 42, "Lorem ipsum");
 
     assert_eq!(
-        r#"{"severity":"WARNING","message":"Lorem ipsum","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"foo":"bar","qux":"42"},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":33,"function":"tracing_gcp_formatter::tests"}}"#,
+        r#"{"severity":"WARNING","message":"Lorem ipsum","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"foo":"bar","hostname":"test-hostname","pid":1,"qux":42},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":33,"function":"tracing_gcp_formatter::tests"}}"#,
         writer.output()
     );
 }
@@ -51,7 +51,7 @@ fn http_event() {
     );
 
     assert_eq!(
-        r#"{"severity":"DEFAULT","message":"Http::connect; scheme=Some(\"http\"), host=Some(\"127.0.0.1\"), port=Some(Port(43059))","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"http.method":"POST","http.url":"https://www.disney.com"},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":47,"function":"tracing_gcp_formatter::tests"}}"#,
+        r#"{"severity":"DEFAULT","message":"Http::connect; scheme=Some(\"http\"), host=Some(\"127.0.0.1\"), port=Some(Port(43059))","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","http.method":"POST","http.url":"https://www.disney.com","pid":1},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":47,"function":"tracing_gcp_formatter::tests"}}"#,
         writer.output()
     );
 }
@@ -65,9 +65,30 @@ fn source_location() {
     tracing::debug!("Where is this coming from?");
 
     assert_eq!(
-        r#"{"severity":"DEBUG","message":"Where is this coming from?","time":"1970-01-01T00:00:00Z","logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":65,"function":"tracing_gcp_formatter::tests"}}"#,
+        r#"{"severity":"DEBUG","message":"Where is this coming from?","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","pid":1},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":65,"function":"tracing_gcp_formatter::tests"}}"#,
         writer.output()
     );
+}
+
+#[test]
+fn span() {
+    let (make_writer, writer) = TestMakeWriter::new();
+    let sub = Registry::default().with(GCPFormattingLayer::new(make_writer));
+    let _guard = tracing::subscriber::set_default(sub);
+
+    foo();
+
+    assert_eq!(
+        r#"{"severity":"INFO","message":"[FOO - START]","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","pid":1},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":89,"function":"tracing_gcp_formatter::tests"}}
+{"severity":"INFO","message":"[FOO - EVENT] Inside a span","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","pid":1},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":91,"function":"tracing_gcp_formatter::tests"}}
+{"severity":"INFO","message":"[FOO - END]","time":"1970-01-01T00:00:00Z","logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":89,"function":"tracing_gcp_formatter::tests"}}"#,
+        writer.output()
+    );
+}
+
+#[tracing::instrument()]
+fn foo() {
+    info!("Inside a span");
 }
 
 struct TestMakeWriter {
