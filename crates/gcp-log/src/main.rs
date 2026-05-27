@@ -1,14 +1,13 @@
 use std::{
     fmt::{Display, Formatter},
-    io::{BufRead, Write, stdout},
+    io::{BufRead, Write, stdin, stdout},
 };
 
-use anyhow::Context;
-use chrono::SecondsFormat;
+use chrono::{DateTime, SecondsFormat};
 use clap::Parser;
 use colored::Colorize;
 
-use crate::models::{SimplifiedLogEntry, SourceLocation};
+use crate::models::{LogEntry, SimplifiedLogEntry, SourceLocation};
 
 mod models;
 
@@ -26,26 +25,35 @@ struct Cli {
     /// Do not print lines that are not valid
     #[arg(long)]
     strict: bool,
-    /// Use simplified format; useful for development
-    #[arg(name = "simplified", short = 's', long = "simplified")]
-    simplified: bool,
+    /// Use Simplified format: this is the format used by most applications to produce logs, so
+    /// this is usefull to read logs produced locally, i.e. for debugging
+    #[arg(name = "simplified-format", long, short)]
+    simplified_format: bool,
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    let stdin = std::io::stdin();
-
-    process_lines(
-        stdin.lock().lines().map_while(Result::ok),
-        &mut stdout().lock(),
-        !cli.no_color,
-        !cli.no_emoji,
-        cli.strict,
-    );
+    if cli.simplified_format {
+        process_lines_in_simplified_format(
+            stdin().lock().lines().map_while(Result::ok),
+            &mut stdout().lock(),
+            !cli.no_color,
+            !cli.no_emoji,
+            cli.strict,
+        );
+    } else {
+        process_lines_in_structured_format(
+            stdin().lock().lines().map_while(Result::ok),
+            &mut stdout().lock(),
+            !cli.no_color,
+            !cli.no_emoji,
+            cli.strict,
+        );
+    }
 }
 
-fn process_lines<T: Iterator<Item = impl ToString + Display>, W: Write>(
+fn process_lines_in_simplified_format<T: Iterator<Item = impl ToString + Display>, W: Write>(
     lines: T,
     writer: &mut W,
     color: bool,
@@ -53,38 +61,126 @@ fn process_lines<T: Iterator<Item = impl ToString + Display>, W: Write>(
     strict: bool,
 ) {
     for line in lines {
-        let _ = match parse(&line.to_string()) {
-            Ok(line) => writeln!(writer, "{}", print_line(line, color, emoji)),
-            Err(_) => {
-                if !strict {
-                    writeln!(writer, "{line}")
-                } else {
-                    Ok(())
-                }
-            }
-        };
+        if let Ok(entry) = serde_json::from_str::<SimplifiedLogEntry>(&line.to_string()) {
+            let _ = writeln!(writer, "{}", entry.print(color, emoji));
+        } else if !strict {
+            let _ = writeln!(writer, "{line}");
+        }
     }
 }
 
-fn parse(line: &str) -> anyhow::Result<SimplifiedLogEntry<'_>> {
-    serde_json::from_str::<SimplifiedLogEntry>(line).context("Parsing log line")
+fn process_lines_in_structured_format<T: Iterator<Item = impl ToString + Display>, W: Write>(
+    lines: T,
+    writer: &mut W,
+    color: bool,
+    emoji: bool,
+    strict: bool,
+) {
+    let mut current = String::new();
+
+    for line in lines {
+        let trimmed = line.to_string().trim().to_owned();
+
+        if trimmed == "[" || trimmed == "]" || trimmed.is_empty() || trimmed == "[]" {
+            continue;
+        }
+
+        current.push_str(&trimmed);
+
+        match serde_json::from_str(current.trim_end_matches(',')) {
+            Ok(obj) => {
+                match serde_json::from_value::<LogEntry>(obj) {
+                    Ok(entry) => {
+                        let _ = writeln!(writer, "{}", entry.print(color, emoji));
+                    }
+                    Err(_) => {
+                        if !strict {
+                            let _ = writeln!(writer, "# {current}");
+                        }
+                    }
+                }
+                current.clear();
+            }
+            Err(_) => {
+                current.push(' ');
+            }
+        }
+    }
 }
 
-fn print_line(entry: SimplifiedLogEntry, color: bool, emoji: bool) -> String {
-    let message = if color {
-        entry.message.cyan()
-    } else {
-        entry.message.normal()
-    };
+trait PrintableLogLine {
+    fn print(self, color: bool, emoji: bool) -> String;
+}
 
-    format!(
-        "[{}] {}: {}{}{}",
-        entry.time.to_rfc3339_opts(SecondsFormat::Millis, true),
-        Severity::new(&entry.severity, color, emoji),
-        message,
-        Labels(entry.labels),
-        Sources(entry.source_location),
-    )
+impl PrintableLogLine for LogEntry {
+    fn print(self, color: bool, emoji: bool) -> String {
+        let message = {
+            let payload = match (self.text_payload, self.json_payload) {
+                (Some(text), _) => text,
+                (_, Some(json)) => json.to_string(),
+                _ => "[empty]".to_owned(),
+            };
+
+            if color {
+                payload.cyan()
+            } else {
+                payload.normal()
+            }
+        };
+
+        format!(
+            "[{}] {}: {}{}{}",
+            //TODO Cleanup
+            // self.timestamp.map(DateTime::parse_from_rfc3339).and_then(|i| i)
+            DateTime::parse_from_rfc3339(&self.timestamp.unwrap())
+                .unwrap()
+                .to_rfc3339_opts(SecondsFormat::Millis, true),
+            Severity::new(&self.severity.unwrap_or_default(), color, emoji),
+            message,
+            Labels(self.labels.map(|i| {
+                let mut l = i.into_iter().collect::<Vec<_>>();
+                l.sort_by(|a, b| a.0.cmp(&b.0));
+                l
+            })),
+            Sources(self.source_location),
+        )
+    }
+}
+
+impl PrintableLogLine for SimplifiedLogEntry<'_> {
+    fn print(self, color: bool, emoji: bool) -> String {
+        let message = if color {
+            self.message.cyan()
+        } else {
+            self.message.normal()
+        };
+
+        let labels = self.labels.map(|i| {
+            let mut l = i
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        match v {
+                            serde_json::Value::String(s) => s.clone(),
+                            _ => v.to_string(),
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            l.sort_by(|a, b| a.0.cmp(&b.0));
+            l
+        });
+
+        format!(
+            "[{}] {}: {}{}{}",
+            self.time.to_rfc3339_opts(SecondsFormat::Millis, true),
+            Severity::new(&self.severity, color, emoji),
+            message,
+            Labels(labels),
+            Sources(self.source_location),
+        )
+    }
 }
 
 struct Severity<'a> {
@@ -139,7 +235,7 @@ impl<'a> Display for Severity<'a> {
     }
 }
 
-struct Labels(Option<serde_json::Map<String, serde_json::Value>>);
+struct Labels(Option<Vec<(String, String)>>);
 
 impl Display for Labels {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -154,12 +250,7 @@ impl Display for Labels {
                     write!(f, ", ")?;
                 }
 
-                let val = match value {
-                    serde_json::Value::String(s) => s.clone(),
-                    _ => value.to_string(),
-                };
-
-                write!(f, "{}={}", key, val)?;
+                write!(f, "{}={}", key, value)?;
                 first = false;
             }
 
@@ -204,31 +295,32 @@ mod test {
     use crate::*;
 
     #[test]
-    fn minimal_content_trace_is_default() {
-        let input = r#"{"message":"My message","time":"2026-05-11T08:23:17.404670507Z"}"#;
-
-        let result = parse(input).unwrap();
-        let output = print_line(result, false, true);
-
-        assert_eq!("[2026-05-11T08:23:17.404Z] 🐾 TRACE: My message", output,);
-    }
-
-    #[test]
-    fn message_with_escaped_double_quotes() {
-        let input =
-            r#"{"message":"This is \"quoted\" content","time":"2026-05-11T08:23:17.404670507Z"}"#;
-
-        let result = parse(input).unwrap();
-        let output = print_line(result, false, true);
+    fn simplified_format_minimal_content_trace_is_default() {
+        let input = [r#"{"message":"My message","time":"2026-05-11T08:23:17.404670507Z"}"#];
+        let mut output = Vec::new();
+        process_lines_in_simplified_format(input.iter(), &mut output, true, true, false);
 
         assert_eq!(
-            "[2026-05-11T08:23:17.404Z] 🐾 TRACE: This is \"quoted\" content",
-            output,
+            "[2026-05-11T08:23:17.404Z] 🐾 \u{1b}[37mTRACE\u{1b}[0m: \u{1b}[36mMy message\u{1b}[0m\n",
+            String::from_utf8_lossy(&output)
         );
     }
 
     #[test]
-    fn levels_color_emoji_not_strict() {
+    fn simplified_format_message_with_escaped_double_quotes() {
+        let input =
+            [r#"{"message":"This is \"quoted\" content","time":"2026-05-11T08:23:17.404670507Z"}"#];
+        let mut output = Vec::new();
+        process_lines_in_simplified_format(input.iter(), &mut output, false, true, false);
+
+        assert_eq!(
+            "[2026-05-11T08:23:17.404Z] 🐾 TRACE: This is \"quoted\" content\n",
+            String::from_utf8_lossy(&output),
+        );
+    }
+
+    #[test]
+    fn simplified_format_levels_color_emoji_not_strict() {
         if std::env::var("CI").is_ok() {
             return;
         }
@@ -242,7 +334,7 @@ mod test {
             r#"The quick brown fox"#,
         ];
         let mut output = Vec::new();
-        process_lines(input.iter(), &mut output, true, true, false);
+        process_lines_in_simplified_format(input.iter(), &mut output, true, true, false);
 
         assert_eq!(
             "[2026-05-11T13:32:04.598Z] \u{1f43e} \u{1b}[37mTRACE\u{1b}[0m: \u{1b}[36mTrace\u{1b}[0m
@@ -257,7 +349,7 @@ The quick brown fox
     }
 
     #[test]
-    fn levels_no_color_emoji_not_strict() {
+    fn simplified_format_levels_no_color_emoji_not_strict() {
         let input = [
             r#"{"message":"Trace","time":"2026-05-11T13:32:04.598656833Z"}"#,
             r#"{"severity":"debug","message":"Debug","time":"2026-05-11T13:32:04.598656833Z"}"#,
@@ -267,7 +359,7 @@ The quick brown fox
             r#"The quick brown fox"#,
         ];
         let mut output = Vec::new();
-        process_lines(input.iter(), &mut output, false, true, false);
+        process_lines_in_simplified_format(input.iter(), &mut output, false, true, false);
 
         assert_eq!(
             "[2026-05-11T13:32:04.598Z] \u{1f43e} TRACE: Trace
@@ -282,7 +374,7 @@ The quick brown fox
     }
 
     #[test]
-    fn levels_color_no_emoji_not_strict() {
+    fn simplified_format_levels_color_no_emoji_not_strict() {
         if std::env::var("CI").is_ok() {
             return;
         }
@@ -296,7 +388,7 @@ The quick brown fox
             r#"The quick brown fox"#,
         ];
         let mut output = Vec::new();
-        process_lines(input.iter(), &mut output, true, false, false);
+        process_lines_in_simplified_format(input.iter(), &mut output, true, false, false);
 
         assert_eq!(
             "[2026-05-11T13:32:04.598Z] \u{1b}[37mTRACE\u{1b}[0m: \u{1b}[36mTrace\u{1b}[0m
@@ -311,7 +403,7 @@ The quick brown fox
     }
 
     #[test]
-    fn levels_no_color_no_emoji_not_strict() {
+    fn simplified_format_levels_no_color_no_emoji_not_strict() {
         let input = [
             r#"{"message":"Trace","time":"2026-05-11T13:32:04.598656833Z"}"#,
             r#"{"severity":"debug","message":"Debug","time":"2026-05-11T13:32:04.598656833Z"}"#,
@@ -321,7 +413,7 @@ The quick brown fox
             r#"The quick brown fox"#,
         ];
         let mut output = Vec::new();
-        process_lines(input.iter(), &mut output, false, false, false);
+        process_lines_in_simplified_format(input.iter(), &mut output, false, false, false);
 
         assert_eq!(
             "[2026-05-11T13:32:04.598Z] TRACE: Trace
@@ -336,7 +428,7 @@ The quick brown fox
     }
 
     #[test]
-    fn levels_no_color_no_emoji_strict() {
+    fn simplified_format_levels_no_color_no_emoji_strict() {
         let input = [
             r#"{"message":"Trace","time":"2026-05-11T13:32:04.598656833Z"}"#,
             r#"{"severity":"debug","message":"Debug","time":"2026-05-11T13:32:04.598656833Z"}"#,
@@ -346,7 +438,7 @@ The quick brown fox
             r#"The quick brown fox"#,
         ];
         let mut output = Vec::new();
-        process_lines(input.iter(), &mut output, false, false, true);
+        process_lines_in_simplified_format(input.iter(), &mut output, false, false, true);
 
         assert_eq!(
             "[2026-05-11T13:32:04.598Z] TRACE: Trace
@@ -360,15 +452,153 @@ The quick brown fox
     }
 
     #[test]
-    fn labels() {
-        let input = r#"{"message":"My message","time":"2026-05-11T08:23:17.404670507Z", "logging.googleapis.com/labels":{"foo": "bar", "baz": "qux"}}"#;
-
-        let result = parse(input).unwrap();
-        let output = print_line(result, false, true);
+    fn simplified_format_labels() {
+        let input = [
+            r#"{"message":"My message","time":"2026-05-11T08:23:17.404670507Z", "logging.googleapis.com/labels":{"foo": "bar", "baz": "qux"}}"#,
+        ];
+        let mut output = Vec::new();
+        process_lines_in_simplified_format(input.iter(), &mut output, false, true, true);
 
         assert_eq!(
-            "[2026-05-11T08:23:17.404Z] 🐾 TRACE: My message (baz=qux, foo=bar)",
-            output,
+            "[2026-05-11T08:23:17.404Z] 🐾 TRACE: My message (baz=qux, foo=bar)\n",
+            String::from_utf8_lossy(&output),
         );
+    }
+
+    #[test]
+    fn structured_format_simple() {
+        let input = [
+            r#"["#,
+            r#"  {"#,
+            r#"    "insertId": "ekwdppfyq77v9a1i","#,
+            r#"    "labels": {"#,
+            r#"      "compute.googleapis.com/resource_name": "gke-cluster-node-pool20251104-52cdb89b-83zw","#,
+            r#"      "k8s-pod/app": "my-pod","#,
+            r#"      "k8s-pod/pod-template-hash": "65b465d4bb","#,
+            r#"      "logging.gke.io/top_level_controller_name": "my-pod","#,
+            r#"      "logging.gke.io/top_level_controller_type": "Deployment""#,
+            r#"    },"#,
+            r#"    "logName": "projects/my-project/logs/stdout","#,
+            r#"    "receiveTimestamp": "2026-05-26T21:11:49.319620805Z","#,
+            r#"    "resource": {"#,
+            r#"      "labels": {"#,
+            r#"        "cluster_name": "gke-cluster","#,
+            r#"        "container_name": "my-container","#,
+            r#"        "location": "europe-west1","#,
+            r#"        "namespace_name": "my-namespace","#,
+            r#"        "pod_name": "my-pod-123","#,
+            r#"        "project_id": "my-project""#,
+            r#"      },"#,
+            r#"      "type": "k8s_container""#,
+            r#"    },"#,
+            r#"    "severity": "INFO","#,
+            r#"    "sourceLocation": {"#,
+            r#"      "file": "src/lib.rs","#,
+            r#"      "function": "lib::main","#,
+            r#"      "line": "24""#,
+            r#"    },"#,
+            r#"    "textPayload": "Some text payload","#,
+            r#"    "timestamp": "2026-05-26T21:11:44.677623573Z""#,
+            r#"  }"#,
+            r#"]"#,
+        ];
+
+        let mut output = Vec::new();
+        process_lines_in_structured_format(input.iter(), &mut output, false, false, true);
+
+        assert_eq!(
+            "[2026-05-26T21:11:44.677Z]  INFO: Some text payload (compute.googleapis.com/resource_name=gke-cluster-node-pool20251104-52cdb89b-83zw, k8s-pod/app=my-pod, k8s-pod/pod-template-hash=65b465d4bb, logging.gke.io/top_level_controller_name=my-pod, logging.gke.io/top_level_controller_type=Deployment) (file=src/lib.rs, line=24, function=lib::main)\n",
+            String::from_utf8_lossy(&output),
+        );
+    }
+
+    #[test]
+    fn structured_format_two_entries() {
+        let input = [
+            r#"["#,
+            r#"  {"#,
+            r#"    "insertId": "ekwdppfyq77v9a1i","#,
+            r#"    "labels": {"#,
+            r#"      "compute.googleapis.com/resource_name": "gke-cluster-node-pool20251104-52cdb89b-83zw","#,
+            r#"      "k8s-pod/app": "my-pod","#,
+            r#"      "k8s-pod/pod-template-hash": "65b465d4bb","#,
+            r#"      "logging.gke.io/top_level_controller_name": "my-pod","#,
+            r#"      "logging.gke.io/top_level_controller_type": "Deployment""#,
+            r#"    },"#,
+            r#"    "logName": "projects/my-project/logs/stdout","#,
+            r#"    "receiveTimestamp": "2026-05-26T21:11:49.319620805Z","#,
+            r#"    "resource": {"#,
+            r#"      "labels": {"#,
+            r#"        "cluster_name": "gke-cluster","#,
+            r#"        "container_name": "my-container","#,
+            r#"        "location": "europe-west1","#,
+            r#"        "namespace_name": "my-namespace","#,
+            r#"        "pod_name": "my-pod-123","#,
+            r#"        "project_id": "my-project""#,
+            r#"      },"#,
+            r#"      "type": "k8s_container""#,
+            r#"    },"#,
+            r#"    "severity": "INFO","#,
+            r#"    "sourceLocation": {"#,
+            r#"      "file": "src/lib.rs","#,
+            r#"      "function": "lib::main","#,
+            r#"      "line": "24""#,
+            r#"    },"#,
+            r#"    "textPayload": "Some text payload","#,
+            r#"    "timestamp": "2026-05-26T21:11:44.677623573Z""#,
+            r#"  },"#,
+            r#"  {"#,
+            r#"    "insertId": "8v9p7rien9spfltm","#,
+            r#"    "labels": {"#,
+            r#"      "compute.googleapis.com/resource_name": "gke-cluster-node-pool20251104-52cdb89b-83zw","#,
+            r#"      "hostname": "my-pod-987","#,
+            r#"      "k8s-pod/app": "my-pod","#,
+            r#"      "k8s-pod/pod-template-hash": "65b465d4bb","#,
+            r#"      "logging.gke.io/top_level_controller_name": "my-pod","#,
+            r#"      "logging.gke.io/top_level_controller_type": "Deployment""#,
+            r#"    },"#,
+            r#"    "logName": "projects/my-project/logs/stdout","#,
+            r#"    "receiveTimestamp": "2026-05-26T21:11:49.319620805Z","#,
+            r#"    "resource": {"#,
+            r#"      "labels": {"#,
+            r#"        "cluster_name": "gke-cluster","#,
+            r#"        "container_name": "my-container","#,
+            r#"        "location": "europe-west1","#,
+            r#"        "namespace_name": "my-namespace","#,
+            r#"        "pod_name": "my-pod-123","#,
+            r#"        "project_id": "my-project""#,
+            r#"      },"#,
+            r#"      "type": "k8s_container""#,
+            r#"    },"#,
+            r#"    "severity": "DEBUG","#,
+            r#"    "sourceLocation": {"#,
+            r#"      "file": "src/lib.rs","#,
+            r#"      "function": "lib::main","#,
+            r#"      "line": "176""#,
+            r#"    },"#,
+            r#"    "textPayload": "Some other text payload","#,
+            r#"    "timestamp": "2026-05-26T21:11:44.677591073Z""#,
+            r#"  }"#,
+            r#"]"#,
+        ];
+
+        let mut output = Vec::new();
+        process_lines_in_structured_format(input.iter(), &mut output, false, false, true);
+
+        assert_eq!(
+            "[2026-05-26T21:11:44.677Z]  INFO: Some text payload (compute.googleapis.com/resource_name=gke-cluster-node-pool20251104-52cdb89b-83zw, k8s-pod/app=my-pod, k8s-pod/pod-template-hash=65b465d4bb, logging.gke.io/top_level_controller_name=my-pod, logging.gke.io/top_level_controller_type=Deployment) (file=src/lib.rs, line=24, function=lib::main)
+[2026-05-26T21:11:44.677Z] DEBUG: Some other text payload (compute.googleapis.com/resource_name=gke-cluster-node-pool20251104-52cdb89b-83zw, hostname=my-pod-987, k8s-pod/app=my-pod, k8s-pod/pod-template-hash=65b465d4bb, logging.gke.io/top_level_controller_name=my-pod, logging.gke.io/top_level_controller_type=Deployment) (file=src/lib.rs, line=176, function=lib::main)\n",
+            String::from_utf8_lossy(&output),
+        );
+    }
+
+    #[test]
+    fn structured_format_empty() {
+        let input = ["[]"];
+
+        let mut output = Vec::new();
+        process_lines_in_structured_format(input.iter(), &mut output, false, false, true);
+
+        assert_eq!("", String::from_utf8_lossy(&output));
     }
 }

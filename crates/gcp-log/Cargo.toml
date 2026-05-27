@@ -8,7 +8,6 @@ description = "A CLI tool for structured logging on GCP"
 repository = "https://github.com/yourusername/gcp-log"
 
 [dependencies]
-anyhow = "1.0.102"
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
