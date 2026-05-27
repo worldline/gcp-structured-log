@@ -12,6 +12,7 @@ pkgs.mkShellNoCC {
     pkgs.lld_19
     pkgs.pkg-config
     pkgs.rustup
+    pkgs.google-cloud-sdk
   ];
 
   shellHook = ''
