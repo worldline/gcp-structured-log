@@ -208,22 +208,40 @@ impl<'a> Display for Severity<'a> {
                 (models::Severity::Info, true) => "ℹ️  ",
                 (models::Severity::Warning, true) => "⚠️  ",
                 (models::Severity::Error, true) => "⛔ ",
+                (models::Severity::Critical, true)
+                | (models::Severity::Alert, true)
+                | (models::Severity::Emergency, true) => "💥 ",
                 (_, true) => "🐼 ",
                 _ => "",
             }
         }
 
         fn color_severity(severity: &models::Severity, color: bool) -> String {
-            let base = format!("{severity}");
-            let base = match (severity, color) {
-                (models::Severity::Default, true) => base.white(),
-                (models::Severity::Debug, true) => base.yellow(),
-                (models::Severity::Info, true) => base.cyan(),
-                (models::Severity::Warning, true) => base.magenta(),
-                (models::Severity::Error, true) => base.red(),
-                _ => base.normal(),
+            let text = match severity {
+                models::Severity::Default => "TRACE",
+                models::Severity::Debug => "DEBUG",
+                models::Severity::Info => " INFO",
+                models::Severity::Notice => "NOTICE",
+                models::Severity::Warning => " WARN",
+                models::Severity::Error => "ERROR",
+                models::Severity::Critical => " CRIT",
+                models::Severity::Alert => "ALERT",
+                models::Severity::Emergency => "EMERG",
             };
-            base.to_string()
+
+            let text = match (severity, color) {
+                (models::Severity::Default, true) => text.white(),
+                (models::Severity::Debug, true) => text.yellow(),
+                (models::Severity::Info, true) => text.cyan(),
+                (models::Severity::Warning, true) => text.magenta(),
+                (models::Severity::Error, true)
+                | (models::Severity::Critical, true)
+                | (models::Severity::Alert, true)
+                | (models::Severity::Emergency, true) => text.red(),
+                _ => text.normal(),
+            };
+
+            text.to_string()
         }
 
         write!(
@@ -461,6 +479,20 @@ The quick brown fox
 
         assert_eq!(
             "[2026-05-11T08:23:17.404Z] 🐾 TRACE: My message (baz=qux, foo=bar)\n",
+            String::from_utf8_lossy(&output),
+        );
+    }
+
+    #[test]
+    fn simplified_format_source_location() {
+        let input = [
+            r#"{"message":"My message","time":"2026-05-11T08:23:17.404670507Z", "logging.googleapis.com/sourceLocation": {"file":"get_data.py","line":"142","function":"getData"}}"#,
+        ];
+        let mut output = Vec::new();
+        process_lines_in_simplified_format(input.iter(), &mut output, false, true, true);
+
+        assert_eq!(
+            "[2026-05-11T08:23:17.404Z] 🐾 TRACE: My message (file=get_data.py, line=142, function=getData)\n",
             String::from_utf8_lossy(&output),
         );
     }

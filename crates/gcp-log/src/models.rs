@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, collections::HashMap, fmt::Display};
+use std::{borrow::Cow, collections::HashMap};
 
 /// Google Structured Log Simplfied Format
 // https://docs.cloud.google.com/logging/docs/structured-logging
@@ -95,23 +95,6 @@ pub enum Severity {
     Alert,
     #[serde(alias = "emergency", alias = "EMERGENCY")]
     Emergency,
-}
-
-//TODO Should be in CLI crate only
-impl Display for Severity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Severity::Default => write!(f, "TRACE"),
-            Severity::Debug => write!(f, "DEBUG"),
-            Severity::Info => write!(f, " INFO"),
-            Severity::Notice => write!(f, "NOTICE"),
-            Severity::Warning => write!(f, " WARN"),
-            Severity::Error => write!(f, "ERROR"),
-            Severity::Critical => write!(f, " CRIT"),
-            Severity::Alert => write!(f, "ALERT"),
-            Severity::Emergency => write!(f, "EMERG"),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

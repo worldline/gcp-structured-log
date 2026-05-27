@@ -2,7 +2,7 @@ use std::{borrow::Cow, io::Write};
 
 use chrono::{DateTime, Utc};
 use tracing::{Level, Metadata, Subscriber, field::Visit, span};
-use tracing_subscriber::{Layer, fmt::MakeWriter};
+use tracing_subscriber::{Layer, fmt::MakeWriter, registry::LookupSpan};
 
 use crate::models::{Severity, SimplifiedLogEntry, SourceLocation};
 
@@ -85,6 +85,20 @@ where
             _ => "[EVENT]".to_owned(),
         };
 
+        if let Some(span) = ctx.event_span(event) {
+            let mut current_span = Some(span);
+
+            while let Some(span) = current_span {
+                let extensions = span.extensions();
+                if let Some(span_fields) = extensions.get::<SpanFields>() {
+                    for (name, value) in span_fields.fields.iter() {
+                        visitor.other_fields.push((name.to_owned(), value.clone()));
+                    }
+                }
+                current_span = span.parent().and_then(|i| ctx.span(&i.id()));
+            }
+        }
+
         let entry = SimplifiedLogEntry {
             severity: map_severity(*event.metadata().level()),
             time: Self::now(),
@@ -134,14 +148,33 @@ where
             return;
         };
 
+        let labels = {
+            let mut l = Vec::<(String, serde_json::Value)>::new();
+
+            let mut current_span_id = Some(id);
+
+            while let Some(span) = current_span_id.and_then(|i| ctx.span(&i)) {
+                let extensions = span.extensions();
+                if let Some(span_fields) = extensions.get::<SpanFields>() {
+                    for (name, value) in span_fields.fields.iter() {
+                        l.push((name.to_owned(), value.clone()));
+                    }
+                }
+
+                current_span_id = span.parent().map(|i| i.id().clone());
+            }
+
+            l
+        };
+
         let entry = SimplifiedLogEntry {
             severity: map_severity(*span.metadata().level()),
             time: Self::now(),
             message: Cow::Borrowed(&format!(
                 "[{} - END]",
-                span.metadata().name().to_uppercase(),
+                span.metadata().name().to_uppercase()
             )),
-            labels: None,
+            labels: map_labels(labels, self.pid, self.hostname.as_deref()),
             source_location: map_source_location(
                 span.metadata().file(),
                 span.metadata().module_path(),
@@ -180,57 +213,110 @@ fn map_source_location(
 }
 
 fn map_labels(
-    other_fields: Vec<(&str, serde_json::Value)>,
+    labels: Vec<(String, serde_json::Value)>,
     pid: u32,
     hostname: Option<&str>,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let mut labels = serde_json::Map::new();
-    labels.insert("pid".to_owned(), serde_json::json!(pid));
+    let mut output = serde_json::Map::new();
+    output.insert("pid".to_owned(), serde_json::json!(pid));
     if let Some(hostname) = hostname {
-        labels.insert("hostname".to_owned(), serde_json::json!(hostname));
+        output.insert("hostname".to_owned(), serde_json::json!(hostname));
     }
-    for (key, value) in other_fields {
-        labels.insert(key.to_owned(), value);
+    for (key, value) in labels {
+        output.insert(key, value);
     }
-    Some(labels)
+    Some(output)
 }
 
 #[derive(Default, Debug)]
-struct EventVisitor<'a> {
+struct EventVisitor {
     message: Option<String>,
-    other_fields: Vec<(&'a str, serde_json::Value)>,
+    other_fields: Vec<(String, serde_json::Value)>,
 }
 
-impl<'a> Visit for EventVisitor<'a> {
+impl Visit for EventVisitor {
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.other_fields.push((field.name(), value.into()))
+        self.other_fields
+            .push((field.name().to_owned(), value.into()))
     }
 
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.other_fields.push((field.name(), value.into()))
+        self.other_fields
+            .push((field.name().to_owned(), value.into()))
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.other_fields.push((field.name(), value.into()))
+        self.other_fields
+            .push((field.name().to_owned(), value.into()))
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         self.other_fields
-            .push((field.name(), value.trim_matches('"').into()))
+            .push((field.name().to_owned(), value.trim_matches('"').into()))
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.other_fields.push((field.name(), value.into()))
+        self.other_fields
+            .push((field.name().to_owned(), value.into()))
     }
 
     fn record_bytes(&mut self, field: &tracing::field::Field, value: &[u8]) {
-        self.other_fields.push((field.name(), value.into()))
+        self.other_fields
+            .push((field.name().to_owned(), value.into()))
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn core::fmt::Debug) {
         match field.name() {
             "message" => self.message = Some(format!("{value:?}")),
-            name => self.other_fields.push((name, format!("{value:?}").into())),
+            name => self
+                .other_fields
+                .push((name.to_owned(), format!("{value:?}").into())),
+        }
+    }
+}
+
+pub struct SpanDataLayer {}
+
+impl SpanDataLayer {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for SpanDataLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+struct SpanFields {
+    fields: Vec<(String, serde_json::Value)>,
+}
+
+impl<S> Layer<S> for SpanDataLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_new_span(
+        &self,
+        attrs: &span::Attributes<'_>,
+        id: &span::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        dbg!("here?");
+        let mut visitor = EventVisitor::default();
+        attrs.record(&mut visitor);
+
+        if let Some(span) = ctx.span(id) {
+            let mut extensions = span.extensions_mut();
+
+            extensions.insert(SpanFields {
+                fields: visitor
+                    .other_fields
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            });
         }
     }
 }
