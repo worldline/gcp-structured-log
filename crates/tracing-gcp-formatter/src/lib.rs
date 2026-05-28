@@ -207,7 +207,7 @@ fn map_source_location(
         _ => Some(SourceLocation {
             file: file.map(|i| i.to_owned()),
             function: function.map(|i| i.to_owned()),
-            line,
+            line: line.map(|i| i.to_string()),
         }),
     }
 }
@@ -303,7 +303,6 @@ where
         id: &span::Id,
         ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        dbg!("here?");
         let mut visitor = EventVisitor::default();
         attrs.record(&mut visitor);
 

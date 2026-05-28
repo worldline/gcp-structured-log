@@ -107,7 +107,7 @@ pub struct SourceLocation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
+    pub line: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<String>,
 }
