@@ -8,6 +8,58 @@ use crate::models::{Severity, SimplifiedLogEntry, SourceLocation};
 
 mod models;
 
+/// A [`tracing_subscriber::Layer`] that formats tracing events and spans as
+/// [GCP Structured Logging] JSON entries and writes them using the provided
+/// [`MakeWriter`].
+///
+/// Each tracing event or span lifecycle transition produces one newline-delimited
+/// JSON log entry with the following GCP fields:
+///
+/// - `severity` — mapped from the tracing [`Level`] (see table below)
+/// - `message` — the event message, prefixed with the span name when emitted inside a span
+/// - `time` — RFC 3339 UTC timestamp
+/// - `logging.googleapis.com/labels` — always contains `pid`; contains `hostname` when the
+///   `hostname` feature is enabled (on by default); also includes all span and event fields
+/// - `logging.googleapis.com/sourceLocation` — file path, line number, and module path
+///   derived from tracing metadata
+///
+/// ## Severity mapping
+///
+/// | `tracing` level | GCP severity |
+/// |-----------------|--------------|
+/// | `TRACE`         | `DEFAULT`    |
+/// | `DEBUG`         | `DEBUG`      |
+/// | `INFO`          | `INFO`       |
+/// | `WARN`          | `WARNING`    |
+/// | `ERROR`         | `ERROR`      |
+///
+/// ## Message format
+///
+/// | Context             | Emitted `message`             |
+/// |---------------------|-------------------------------|
+/// | Event outside span  | `message`                     |
+/// | Event inside span   | `[SPAN_NAME - EVENT] message` |
+/// | Span opens          | `[SPAN_NAME - START]`         |
+/// | Span closes         | `[SPAN_NAME - END]`           |
+///
+/// ## Usage
+///
+/// `GCPFormattingLayer` must be paired with [`SpanDataLayer`] so that span fields are
+/// available when formatting events emitted inside a span. Always add [`SpanDataLayer`]
+/// **before** `GCPFormattingLayer` in the subscriber stack.
+///
+/// ```no_run
+/// use tracing_subscriber::{Registry, layer::SubscriberExt};
+/// use tracing_gcp_formatter::{GCPFormattingLayer, SpanDataLayer};
+///
+/// let subscriber = Registry::default()
+///     .with(SpanDataLayer::new())
+///     .with(GCPFormattingLayer::new(std::io::stdout));
+///
+/// tracing::subscriber::set_global_default(subscriber).expect("setting subscriber");
+/// ```
+///
+/// [GCP Structured Logging]: https://cloud.google.com/logging/docs/structured-logging
 pub struct GCPFormattingLayer<W: for<'a> MakeWriter<'a> + 'static> {
     make_writer: W,
     pid: u32,
@@ -18,6 +70,10 @@ impl<W> GCPFormattingLayer<W>
 where
     W: for<'a> MakeWriter<'a> + 'static,
 {
+    /// Creates a new `GCPFormattingLayer` that writes JSON log entries using `make_writer`.
+    ///
+    /// `make_writer` can be any type implementing
+    /// [`MakeWriter`], such as [`std::io::stdout`] or [`std::io::stderr`].
     pub fn new(make_writer: W) -> Self {
         Self {
             make_writer,
@@ -275,9 +331,34 @@ impl Visit for EventVisitor {
     }
 }
 
+/// A [`tracing_subscriber::Layer`] that captures span fields and stores them in span
+/// extensions so that [`GCPFormattingLayer`] can include them in log entries emitted
+/// from within those spans.
+///
+/// When an event fires inside a span, [`GCPFormattingLayer`] walks the span ancestry and
+/// collects all fields recorded by this layer, merging them into the `labels` of the
+/// produced JSON log entry. This layer carries no state of its own and is cheap to construct.
+///
+/// ## Usage
+///
+/// Always add `SpanDataLayer` **before** [`GCPFormattingLayer`] in the subscriber stack.
+/// The ordering matters: `SpanDataLayer` must store the span data before
+/// `GCPFormattingLayer` can read it.
+///
+/// ```no_run
+/// use tracing_subscriber::{Registry, layer::SubscriberExt};
+/// use tracing_gcp_formatter::{GCPFormattingLayer, SpanDataLayer};
+///
+/// let subscriber = Registry::default()
+///     .with(SpanDataLayer::new())
+///     .with(GCPFormattingLayer::new(std::io::stdout));
+///
+/// tracing::subscriber::set_global_default(subscriber).expect("setting subscriber");
+/// ```
 pub struct SpanDataLayer {}
 
 impl SpanDataLayer {
+    /// Creates a new `SpanDataLayer`.
     pub fn new() -> Self {
         Self {}
     }
