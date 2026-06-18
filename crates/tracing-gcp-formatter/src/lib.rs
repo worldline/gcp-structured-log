@@ -1,3 +1,6 @@
+#![allow(clippy::needless_doctest_main)]
+#![doc = include_str!("../README.md")]
+
 use std::{borrow::Cow, io::Write};
 
 use chrono::{DateTime, Utc};

@@ -1,3 +1,6 @@
+#![allow(clippy::needless_doctest_main)]
+#![doc = include_str!("../README.md")]
+
 use std::{
     fmt::{Display, Formatter},
     io::{BufRead, Write, stdin, stdout},
