@@ -209,3 +209,9 @@ gcloud logging read '...' --format json | gcp-log --no-color --no-emoji
 ## License
 
 MIT
+
+## Shoutouts
+
+- tracing-bunyan-formatter: https://github.com/LukeMathWalker/tracing-bunyan-formatter
+- bunyan: https://github.com/LukeMathWalker/bunyan
+- tracing-gcp: https://docs.rs/tracing-gcp/latest/tracing_gcp
