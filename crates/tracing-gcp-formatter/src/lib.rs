@@ -4,7 +4,11 @@
 use std::{borrow::Cow, io::Write};
 
 use chrono::{DateTime, Utc};
-use tracing::{Level, Metadata, Subscriber, field::Visit, span};
+use tracing::{
+    Level, Metadata, Subscriber,
+    field::{Field, Visit},
+    span,
+};
 use tracing_subscriber::{Layer, fmt::MakeWriter, registry::LookupSpan};
 
 use crate::models::{Severity, SimplifiedLogEntry, SourceLocation};
@@ -151,7 +155,7 @@ where
                 let extensions = span.extensions();
                 if let Some(span_fields) = extensions.get::<SpanFields>() {
                     for (name, value) in span_fields.fields.iter() {
-                        visitor.other_fields.push((name.to_owned(), value.clone()));
+                        visitor.other_fields.push((*name, value.clone()));
                     }
                 }
                 current_span = span.parent().and_then(|i| ctx.span(&i.id()));
@@ -208,7 +212,7 @@ where
         };
 
         let labels = {
-            let mut l = Vec::<(String, serde_json::Value)>::new();
+            let mut l = Vec::<(&'static str, serde_json::Value)>::new();
 
             let mut current_span_id = Some(id);
 
@@ -216,7 +220,7 @@ where
                 let extensions = span.extensions();
                 if let Some(span_fields) = extensions.get::<SpanFields>() {
                     for (name, value) in span_fields.fields.iter() {
-                        l.push((name.to_owned(), value.clone()));
+                        l.push((*name, value.clone()));
                     }
                 }
 
@@ -272,7 +276,7 @@ fn map_source_location(
 }
 
 fn map_labels(
-    labels: Vec<(String, serde_json::Value)>,
+    labels: Vec<(&'static str, serde_json::Value)>,
     pid: u32,
     hostname: Option<&str>,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
@@ -282,7 +286,7 @@ fn map_labels(
         output.insert("hostname".to_owned(), serde_json::json!(hostname));
     }
     for (key, value) in labels {
-        output.insert(key, value);
+        output.insert(key.to_owned(), value);
     }
     Some(output)
 }
@@ -290,46 +294,39 @@ fn map_labels(
 #[derive(Default, Debug)]
 struct EventVisitor {
     message: Option<String>,
-    other_fields: Vec<(String, serde_json::Value)>,
+    other_fields: Vec<(&'static str, serde_json::Value)>,
 }
 
 impl Visit for EventVisitor {
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.other_fields
-            .push((field.name().to_owned(), value.into()))
+        self.other_fields.push((field.name(), value.into()))
     }
 
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.other_fields
-            .push((field.name().to_owned(), value.into()))
+        self.other_fields.push((field.name(), value.into()))
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.other_fields
-            .push((field.name().to_owned(), value.into()))
+        self.other_fields.push((field.name(), value.into()))
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         self.other_fields
-            .push((field.name().to_owned(), value.trim_matches('"').into()))
+            .push((field.name(), value.trim_matches('"').into()))
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.other_fields
-            .push((field.name().to_owned(), value.into()))
+        self.other_fields.push((field.name(), value.into()))
     }
 
     fn record_bytes(&mut self, field: &tracing::field::Field, value: &[u8]) {
-        self.other_fields
-            .push((field.name().to_owned(), value.into()))
+        self.other_fields.push((field.name(), value.into()))
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn core::fmt::Debug) {
         match field.name() {
             "message" => self.message = Some(format!("{value:?}")),
-            name => self
-                .other_fields
-                .push((name.to_owned(), format!("{value:?}").into())),
+            name => self.other_fields.push((name, format!("{value:?}").into())),
         }
     }
 }
@@ -373,10 +370,6 @@ impl Default for SpanDataLayer {
     }
 }
 
-struct SpanFields {
-    fields: Vec<(String, serde_json::Value)>,
-}
-
 impl<S> Layer<S> for SpanDataLayer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -397,10 +390,71 @@ where
                 fields: visitor
                     .other_fields
                     .iter()
-                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .map(|(k, v)| (*k, v.clone()))
                     .collect(),
             });
         }
+    }
+
+    fn on_record(
+        &self,
+        id: &span::Id,
+        values: &span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if let Some(span) = ctx.span(id) {
+            let mut extensions = span.extensions_mut();
+            let visitor = extensions
+                .get_mut::<SpanFields>()
+                .expect("Visitor not found on 'record', this is a bug");
+            values.record(visitor);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SpanFields {
+    fields: Vec<(&'static str, serde_json::Value)>,
+}
+
+impl Visit for SpanFields {
+    fn record_i64(&mut self, field: &Field, value: i64) {
+        self.fields
+            .push((field.name(), serde_json::Value::from(value)));
+    }
+
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        self.fields
+            .push((field.name(), serde_json::Value::from(value)));
+    }
+
+    fn record_f64(&mut self, field: &Field, value: f64) {
+        self.fields
+            .push((field.name(), serde_json::Value::from(value)));
+    }
+
+    fn record_bool(&mut self, field: &Field, value: bool) {
+        self.fields
+            .push((field.name(), serde_json::Value::from(value)));
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.fields
+            .push((field.name(), serde_json::Value::from(value)));
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn core::fmt::Debug) {
+        match field.name() {
+            name if name.starts_with("log.") => (),
+            name if name.starts_with("r#") => {
+                self.fields
+                    .push((&name[2..], serde_json::Value::from(format!("{:?}", value))));
+            }
+            name => {
+                self.fields
+                    .push((name, serde_json::Value::from(format!("{:?}", value))));
+            }
+        };
     }
 }
 
