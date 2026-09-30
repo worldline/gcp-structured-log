@@ -104,6 +104,56 @@ fn foo() {
     warn!("Inside span");
 }
 
+#[test]
+fn nested_span_inherits_parent_fields() {
+    let (make_writer, writer) = TestMakeWriter::new();
+    let sub = Registry::default()
+        .with(SpanDataLayer::new())
+        .with(GCPFormattingLayer::new(make_writer));
+    let _guard = tracing::subscriber::set_default(sub);
+
+    outer_span();
+
+    let entries: Vec<serde_json::Value> = writer
+        .output()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    let event = entries
+        .iter()
+        .find(|e| {
+            e["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("[INNER_SPAN - EVENT]")
+        })
+        .expect("event inside inner span");
+
+    let labels = &event["logging.googleapis.com/labels"];
+    assert_eq!(labels["inner_field"], "bar");
+    assert_eq!(labels["outer_field"], "foo");
+
+    let inner_end = entries
+        .iter()
+        .find(|e| e["message"].as_str().unwrap_or_default() == "[INNER_SPAN - END]")
+        .expect("inner span end");
+
+    let end_labels = &inner_end["logging.googleapis.com/labels"];
+    assert_eq!(end_labels["inner_field"], "bar");
+    assert_eq!(end_labels["outer_field"], "foo");
+}
+
+#[tracing::instrument(fields(outer_field = "foo"))]
+fn outer_span() {
+    inner_span();
+}
+
+#[tracing::instrument(fields(inner_field = "bar"))]
+fn inner_span() {
+    info!("inside nested span");
+}
+
 struct TestMakeWriter {
     writer: TestWriter,
 }

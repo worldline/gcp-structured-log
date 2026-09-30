@@ -119,7 +119,7 @@ where
 
     fn emit(&self, entry: &SimplifiedLogEntry, meta: &Metadata<'_>) -> Result<(), std::io::Error> {
         let buffer = {
-            let mut b = serde_json::to_string(entry).expect("Serializing SimplifiedLogEntry");
+            let mut b = serde_json::to_string(entry)?;
             b.push('\n');
             b
         };
@@ -190,7 +190,7 @@ where
         let entry = SimplifiedLogEntry {
             severity: map_severity(*attrs.metadata().level()),
             time: Self::now(),
-            message: Cow::Borrowed(&format!(
+            message: Cow::Owned(format!(
                 "[{} - START]",
                 attrs.metadata().name().to_uppercase()
             )),
@@ -211,12 +211,13 @@ where
             return;
         };
 
+        let meta = span.metadata();
+
         let labels = {
             let mut l = Vec::<(&'static str, serde_json::Value)>::new();
+            let mut current_span = Some(span);
 
-            let mut current_span_id = Some(id);
-
-            while let Some(span) = current_span_id.and_then(|i| ctx.span(&i)) {
+            while let Some(span) = current_span {
                 let extensions = span.extensions();
                 if let Some(span_fields) = extensions.get::<SpanFields>() {
                     for (name, value) in span_fields.fields.iter() {
@@ -224,29 +225,22 @@ where
                     }
                 }
 
-                current_span_id = span.parent().map(|i| i.id().clone());
+                current_span = span.parent().and_then(|s| ctx.span(&s.id()))
             }
 
             l
         };
 
         let entry = SimplifiedLogEntry {
-            severity: map_severity(*span.metadata().level()),
+            severity: map_severity(*meta.level()),
             time: Self::now(),
-            message: Cow::Borrowed(&format!(
-                "[{} - END]",
-                span.metadata().name().to_uppercase()
-            )),
+            message: Cow::Owned(format!("[{} - END]", meta.name().to_uppercase())),
             labels: map_labels(labels, self.pid, self.hostname.as_deref()),
-            source_location: map_source_location(
-                span.metadata().file(),
-                span.metadata().module_path(),
-                span.metadata().line(),
-            ),
+            source_location: map_source_location(meta.file(), meta.module_path(), meta.line()),
             ..Default::default()
         };
 
-        let _ = self.emit(&entry, span.metadata());
+        let _ = self.emit(&entry, meta);
     }
 }
 
@@ -355,7 +349,7 @@ impl Visit for EventVisitor {
 ///
 /// tracing::subscriber::set_global_default(subscriber).expect("setting subscriber");
 /// ```
-pub struct SpanDataLayer {}
+pub struct SpanDataLayer;
 
 impl SpanDataLayer {
     /// Creates a new `SpanDataLayer`.
@@ -387,11 +381,7 @@ where
             let mut extensions = span.extensions_mut();
 
             extensions.insert(SpanFields {
-                fields: visitor
-                    .other_fields
-                    .iter()
-                    .map(|(k, v)| (*k, v.clone()))
-                    .collect(),
+                fields: visitor.other_fields,
             });
         }
     }
@@ -448,11 +438,11 @@ impl Visit for SpanFields {
             name if name.starts_with("log.") => (),
             name if name.starts_with("r#") => {
                 self.fields
-                    .push((&name[2..], serde_json::Value::from(format!("{:?}", value))));
+                    .push((&name[2..], serde_json::Value::from(format!("{value:?}"))));
             }
             name => {
                 self.fields
-                    .push((name, serde_json::Value::from(format!("{:?}", value))));
+                    .push((name, serde_json::Value::from(format!("{value:?}"))));
             }
         };
     }

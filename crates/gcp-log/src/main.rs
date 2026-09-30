@@ -56,7 +56,7 @@ fn main() {
     }
 }
 
-fn process_lines_in_simplified_format<T: Iterator<Item = impl ToString + Display>, W: Write>(
+fn process_lines_in_simplified_format<T: Iterator<Item = impl Display>, W: Write>(
     lines: T,
     writer: &mut W,
     color: bool,
@@ -133,11 +133,11 @@ impl PrintableLogLine for LogEntry {
 
         format!(
             "[{}] {}: {}{}{}",
-            //TODO Cleanup
-            // self.timestamp.map(DateTime::parse_from_rfc3339).and_then(|i| i)
-            DateTime::parse_from_rfc3339(&self.timestamp.unwrap())
-                .unwrap()
-                .to_rfc3339_opts(SecondsFormat::Millis, true),
+            self.timestamp
+                .as_deref()
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.to_rfc3339_opts(SecondsFormat::Millis, true))
+                .unwrap_or_else(|| "(invalid timestamp)".to_owned()),
             Severity::new(&self.severity.unwrap_or_default(), color, emoji),
             message,
             Labels(self.labels.map(|i| {
@@ -200,58 +200,58 @@ impl<'a> Severity<'a> {
             emoji,
         }
     }
+
+    fn severity_emoji(severity: &models::Severity, emoji: bool) -> &'static str {
+        match (severity, emoji) {
+            (models::Severity::Default, true) => "🐾 ",
+            (models::Severity::Debug, true) => "🪲 ",
+            (models::Severity::Info, true) => "ℹ️  ",
+            (models::Severity::Warning, true) => "⚠️  ",
+            (models::Severity::Error, true) => "⛔ ",
+            (models::Severity::Critical, true)
+            | (models::Severity::Alert, true)
+            | (models::Severity::Emergency, true) => "💥 ",
+            (_, true) => "🐼 ",
+            _ => "",
+        }
+    }
+
+    fn color_severity(severity: &models::Severity, color: bool) -> String {
+        let text = match severity {
+            models::Severity::Default => "TRACE",
+            models::Severity::Debug => "DEBUG",
+            models::Severity::Info => " INFO",
+            models::Severity::Notice => "NOTICE",
+            models::Severity::Warning => " WARN",
+            models::Severity::Error => "ERROR",
+            models::Severity::Critical => " CRIT",
+            models::Severity::Alert => "ALERT",
+            models::Severity::Emergency => "EMERG",
+        };
+
+        let text = match (severity, color) {
+            (models::Severity::Default, true) => text.white(),
+            (models::Severity::Debug, true) => text.yellow(),
+            (models::Severity::Info, true) => text.cyan(),
+            (models::Severity::Warning, true) => text.magenta(),
+            (models::Severity::Error, true)
+            | (models::Severity::Critical, true)
+            | (models::Severity::Alert, true)
+            | (models::Severity::Emergency, true) => text.red(),
+            _ => text.normal(),
+        };
+
+        text.to_string()
+    }
 }
 
 impl<'a> Display for Severity<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        fn severity_emoji(severity: &models::Severity, emoji: bool) -> &'static str {
-            match (severity, emoji) {
-                (models::Severity::Default, true) => "🐾 ",
-                (models::Severity::Debug, true) => "🪲 ",
-                (models::Severity::Info, true) => "ℹ️  ",
-                (models::Severity::Warning, true) => "⚠️  ",
-                (models::Severity::Error, true) => "⛔ ",
-                (models::Severity::Critical, true)
-                | (models::Severity::Alert, true)
-                | (models::Severity::Emergency, true) => "💥 ",
-                (_, true) => "🐼 ",
-                _ => "",
-            }
-        }
-
-        fn color_severity(severity: &models::Severity, color: bool) -> String {
-            let text = match severity {
-                models::Severity::Default => "TRACE",
-                models::Severity::Debug => "DEBUG",
-                models::Severity::Info => " INFO",
-                models::Severity::Notice => "NOTICE",
-                models::Severity::Warning => " WARN",
-                models::Severity::Error => "ERROR",
-                models::Severity::Critical => " CRIT",
-                models::Severity::Alert => "ALERT",
-                models::Severity::Emergency => "EMERG",
-            };
-
-            let text = match (severity, color) {
-                (models::Severity::Default, true) => text.white(),
-                (models::Severity::Debug, true) => text.yellow(),
-                (models::Severity::Info, true) => text.cyan(),
-                (models::Severity::Warning, true) => text.magenta(),
-                (models::Severity::Error, true)
-                | (models::Severity::Critical, true)
-                | (models::Severity::Alert, true)
-                | (models::Severity::Emergency, true) => text.red(),
-                _ => text.normal(),
-            };
-
-            text.to_string()
-        }
-
         write!(
             f,
             "{}{}",
-            severity_emoji(self.severity, self.emoji),
-            color_severity(self.severity, self.color)
+            Self::severity_emoji(self.severity, self.emoji),
+            Self::color_severity(self.severity, self.color)
         )
     }
 }
@@ -301,7 +301,7 @@ impl Display for Sources {
                 }
 
                 if parts.is_empty() {
-                    write!(f, "")
+                    Ok(())
                 } else {
                     write!(f, " ({})", parts.join(", "))
                 }
@@ -316,11 +316,8 @@ mod test {
     use crate::*;
 
     #[test]
+    #[ignore = "Color does not work in CI"]
     fn simplified_format_minimal_content_trace_is_default() {
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
         let input = [r#"{"message":"My message","time":"2026-05-11T08:23:17.404670507Z"}"#];
         let mut output = Vec::new();
         process_lines_in_simplified_format(input.iter(), &mut output, true, true, false);
@@ -345,11 +342,8 @@ mod test {
     }
 
     #[test]
+    #[ignore = "Color does not work in CI"]
     fn simplified_format_levels_color_emoji_not_strict() {
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
         let input = [
             r#"{"message":"Trace","time":"2026-05-11T13:32:04.598656833Z"}"#,
             r#"{"severity":"debug","message":"Debug","time":"2026-05-11T13:32:04.598656833Z"}"#,
@@ -399,11 +393,8 @@ The quick brown fox
     }
 
     #[test]
+    #[ignore = "Color does not work in CI"]
     fn simplified_format_levels_color_no_emoji_not_strict() {
-        if std::env::var("CI").is_ok() {
-            return;
-        }
-
         let input = [
             r#"{"message":"Trace","time":"2026-05-11T13:32:04.598656833Z"}"#,
             r#"{"severity":"debug","message":"Debug","time":"2026-05-11T13:32:04.598656833Z"}"#,
