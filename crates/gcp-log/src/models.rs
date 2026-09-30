@@ -1,6 +1,7 @@
+// BEGIN SHARED MODELS
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
 
 /// Google Structured Log Simplfied Format
 // https://docs.cloud.google.com/logging/docs/structured-logging
@@ -32,45 +33,6 @@ pub struct SimplifiedLogEntry<'a> {
         skip_serializing_if = "Option::is_none"
     )]
     pub span_id: Option<String>,
-}
-
-/// Google Structured Log Format
-/// See https://docs.cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogEntry {
-    pub log_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub severity: Option<Severity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub insert_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub http_request: Option<HttpRequest>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_location: Option<SourceLocation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub operation: Option<LogEntryOperation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trace: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub span_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trace_sampled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_reference: Option<Vec<SourceReference>>,
-    // Payload fields (mutually exclusive in practice)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text_payload: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub json_payload: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub proto_payload: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource: Option<MonitoredResource>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -128,17 +90,6 @@ pub struct HttpRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SourceLocation {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LogEntryOperation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -148,6 +99,59 @@ pub struct LogEntryOperation {
     pub first: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceLocation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+}
+// END SHARED MODELS
+
+use std::collections::HashMap;
+
+/// Google Structured Log Format
+/// See https://docs.cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogEntry {
+    pub log_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<Severity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub insert_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_request: Option<HttpRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_location: Option<SourceLocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation: Option<LogEntryOperation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_sampled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_reference: Option<Vec<SourceReference>>,
+    // Payload fields (mutually exclusive in practice)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_payload: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_payload: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proto_payload: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<MonitoredResource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
