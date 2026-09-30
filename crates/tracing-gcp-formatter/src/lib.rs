@@ -165,7 +165,7 @@ where
         let entry = SimplifiedLogEntry {
             severity: map_severity(*event.metadata().level()),
             time: Self::now(),
-            message: Cow::Borrowed(&message),
+            message: Cow::Owned(message),
             labels: map_labels(visitor.other_fields, self.pid, self.hostname.as_deref()),
             source_location: map_source_location(
                 event.metadata().file(),
@@ -354,7 +354,7 @@ pub struct SpanDataLayer;
 impl SpanDataLayer {
     /// Creates a new `SpanDataLayer`.
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 }
 

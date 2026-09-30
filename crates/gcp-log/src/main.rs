@@ -72,7 +72,7 @@ fn process_lines_in_simplified_format<T: Iterator<Item = impl Display>, W: Write
     }
 }
 
-fn process_lines_in_structured_format<T: Iterator<Item = impl ToString + Display>, W: Write>(
+fn process_lines_in_structured_format<T: Iterator<Item = impl Display>, W: Write>(
     lines: T,
     writer: &mut W,
     color: bool,
