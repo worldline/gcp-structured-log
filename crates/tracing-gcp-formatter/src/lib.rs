@@ -144,35 +144,23 @@ where
         let mut visitor = EventVisitor::default();
         event.record(&mut visitor);
 
-        let message = match (&visitor.message, ctx.lookup_current()) {
-            (Some(message), Some(span)) => {
-                format!("[{} - EVENT] {}", span.name().to_uppercase(), message)
-            }
-            (_, Some(span)) => format!("[{} - EVENT]", span.name().to_uppercase()),
-            (Some(message), _) => message.to_owned(),
-            _ => "[EVENT]".to_owned(),
+        let message = match (visitor.message.as_deref(), ctx.lookup_current()) {
+            (Some(message), Some(span)) => Cow::Owned(format!(
+                "[{} - EVENT] {}",
+                span.name().to_uppercase(),
+                message
+            )),
+            (_, Some(span)) => Cow::Owned(format!("[{} - EVENT]", span.name().to_uppercase())),
+            (Some(message), _) => Cow::Owned(message.to_owned()),
+            _ => Cow::Borrowed("[EVENT]"),
         };
 
         copy_parents_fields(&ctx, &mut visitor, ctx.event_span(event));
 
-        if let Some(span) = ctx.event_span(event) {
-            let mut current_span = Some(span);
-
-            while let Some(span) = current_span {
-                let extensions = span.extensions();
-                if let Some(span_fields) = extensions.get::<SpanFields>() {
-                    for (name, value) in span_fields.fields.iter() {
-                        visitor.other_fields.push((*name, value.clone()));
-                    }
-                }
-                current_span = span.parent().and_then(|i| ctx.span(&i.id()));
-            }
-        }
-
         let entry = SimplifiedLogEntry {
             severity: map_severity(*event.metadata().level()),
             time: Self::now(),
-            message: Cow::Owned(message),
+            message,
             labels: map_labels(visitor.other_fields, self.pid, self.hostname.as_deref()),
             source_location: map_source_location(
                 event.metadata().file(),
