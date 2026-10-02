@@ -9,7 +9,12 @@ use tracing::{
     field::{Field, Visit},
     span,
 };
-use tracing_subscriber::{Layer, fmt::MakeWriter, registry::LookupSpan};
+use tracing_subscriber::{
+    Layer,
+    fmt::MakeWriter,
+    layer::Context,
+    registry::{LookupSpan, SpanRef},
+};
 
 use crate::models::{Severity, SimplifiedLogEntry, SourceLocation};
 
@@ -139,14 +144,16 @@ where
         let mut visitor = EventVisitor::default();
         event.record(&mut visitor);
 
-        let message = match (visitor.message, ctx.lookup_current()) {
+        let message = match (&visitor.message, ctx.lookup_current()) {
             (Some(message), Some(span)) => {
                 format!("[{} - EVENT] {}", span.name().to_uppercase(), message)
             }
             (_, Some(span)) => format!("[{} - EVENT]", span.name().to_uppercase()),
-            (Some(message), _) => message,
+            (Some(message), _) => message.to_owned(),
             _ => "[EVENT]".to_owned(),
         };
+
+        copy_parents_fields(&ctx, &mut visitor, ctx.event_span(event));
 
         if let Some(span) = ctx.event_span(event) {
             let mut current_span = Some(span);
@@ -181,11 +188,13 @@ where
     fn on_new_span(
         &self,
         attrs: &span::Attributes<'_>,
-        _id: &span::Id,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
+        id: &span::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let mut visitor = EventVisitor::default();
         attrs.record(&mut visitor);
+
+        copy_parents_fields(&ctx, &mut visitor, ctx.span(id).and_then(|i| i.parent()));
 
         let entry = SimplifiedLogEntry {
             severity: map_severity(*attrs.metadata().level()),
@@ -283,6 +292,29 @@ fn map_labels(
         output.insert(key.to_owned(), value);
     }
     Some(output)
+}
+
+fn copy_parents_fields<'a, S>(
+    ctx: &'a Context<'a, S>,
+    visitor: &mut EventVisitor,
+    span: Option<SpanRef<'a, S>>,
+) where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+{
+    if let Some(span) = span {
+        let mut current_span = Some(span);
+
+        while let Some(span) = current_span {
+            let extensions = span.extensions();
+            if let Some(span_fields) = extensions.get::<SpanFields>() {
+                for (name, value) in span_fields.fields.iter() {
+                    visitor.other_fields.push((*name, value.clone()));
+                }
+            }
+
+            current_span = span.parent().and_then(|i| ctx.span(&i.id()));
+        }
+    }
 }
 
 #[derive(Default, Debug)]

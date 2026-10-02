@@ -120,6 +120,20 @@ fn nested_span_inherits_parent_fields() {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
 
+    let inner_span_start = entries
+        .iter()
+        .find(|e| {
+            e["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("[INNER_SPAN - START]")
+        })
+        .expect("start of inner span");
+
+    let labels = &inner_span_start["logging.googleapis.com/labels"];
+    assert_eq!(labels["inner_field"], "bar");
+    assert_eq!(labels["outer_field"], "foo");
+
     let event = entries
         .iter()
         .find(|e| {
@@ -142,6 +156,8 @@ fn nested_span_inherits_parent_fields() {
     let end_labels = &inner_end["logging.googleapis.com/labels"];
     assert_eq!(end_labels["inner_field"], "bar");
     assert_eq!(end_labels["outer_field"], "foo");
+
+    println!("{}", writer.output());
 }
 
 #[tracing::instrument(fields(outer_field = "foo"))]
