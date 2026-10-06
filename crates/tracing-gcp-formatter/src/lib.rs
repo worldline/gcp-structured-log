@@ -414,10 +414,9 @@ where
     ) {
         if let Some(span) = ctx.span(id) {
             let mut extensions = span.extensions_mut();
-            let visitor = extensions
-                .get_mut::<SpanFields>()
-                .expect("Visitor not found on 'record', this is a bug");
-            values.record(visitor);
+            if let Some(visitor) = extensions.get_mut::<SpanFields>() {
+                values.record(visitor);
+            }
         }
     }
 }
