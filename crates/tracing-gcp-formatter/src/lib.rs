@@ -354,7 +354,7 @@ impl Visit for EventVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn core::fmt::Debug) {
         match field.name() {
             "message" => self.message = Some(format!("{value:?}")),
-            name => self.other_fields.push((name, format!("{value:?}").into())),
+            _ => self.record(field, format!("{value:?}")),
         }
     }
 }
@@ -440,30 +440,32 @@ struct SpanFields {
     fields: Vec<(&'static str, serde_json::Value)>,
 }
 
+impl SpanFields {
+    fn record<T: ToString>(&mut self, field: &tracing::field::Field, value: T) {
+        self.fields
+            .push((field.name(), serde_json::Value::String(value.to_string())))
+    }
+}
+
 impl Visit for SpanFields {
     fn record_i64(&mut self, field: &Field, value: i64) {
-        self.fields
-            .push((field.name(), serde_json::Value::from(value)));
+        self.record(field, value);
     }
 
     fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .push((field.name(), serde_json::Value::from(value)));
+        self.record(field, value);
     }
 
     fn record_f64(&mut self, field: &Field, value: f64) {
-        self.fields
-            .push((field.name(), serde_json::Value::from(value)));
+        self.record(field, value);
     }
 
     fn record_bool(&mut self, field: &Field, value: bool) {
-        self.fields
-            .push((field.name(), serde_json::Value::from(value)));
+        self.record(field, value);
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .push((field.name(), serde_json::Value::from(value)));
+        self.record(field, value);
     }
 
     fn record_debug(&mut self, field: &Field, value: &dyn core::fmt::Debug) {
@@ -473,9 +475,8 @@ impl Visit for SpanFields {
                 self.fields
                     .push((&name[2..], serde_json::Value::from(format!("{value:?}"))));
             }
-            name => {
-                self.fields
-                    .push((name, serde_json::Value::from(format!("{value:?}"))));
+            _ => {
+                self.record(field, format!("{value:?}"));
             }
         };
     }

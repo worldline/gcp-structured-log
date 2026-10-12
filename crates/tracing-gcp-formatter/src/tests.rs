@@ -171,19 +171,27 @@ fn inner_span() {
 }
 
 #[test]
-fn u16_field_becomes_string() {
+fn u16_fields_become_string() {
     let (make_writer, writer) = TestMakeWriter::new();
     let sub = Registry::default()
         .with(SpanDataLayer::new())
         .with(GCPFormattingLayer::new(make_writer));
     let _guard = tracing::subscriber::set_default(sub);
 
+    test_span();
     info!(status_code = 404u16, "HTTP Status Code");
 
     assert_eq!(
-        r#"{"severity":"INFO","message":"HTTP Status Code","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","pid":"1","status_code":"404"},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":"181","function":"tracing_gcp_formatter::tests"}}"#,
+        r#"{"severity":"INFO","message":"[TEST_SPAN - START]","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","pid":"1"},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":"192","function":"tracing_gcp_formatter::tests"}}
+{"severity":"INFO","message":"[TEST_SPAN - END]","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"baz":"42","hostname":"test-hostname","pid":"1"},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":"192","function":"tracing_gcp_formatter::tests"}}
+{"severity":"INFO","message":"HTTP Status Code","time":"1970-01-01T00:00:00Z","logging.googleapis.com/labels":{"hostname":"test-hostname","pid":"1","status_code":"404"},"logging.googleapis.com/sourceLocation":{"file":"crates/tracing-gcp-formatter/src/tests.rs","line":"182","function":"tracing_gcp_formatter::tests"}}"#,
         writer.output()
     )
+}
+
+#[tracing::instrument(fields(baz = tracing::field::Empty))]
+fn test_span() {
+    Span::current().record("baz", 42u16);
 }
 
 struct TestMakeWriter {
