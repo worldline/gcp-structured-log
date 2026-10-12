@@ -272,7 +272,7 @@ fn map_labels(
     hostname: Option<&str>,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
     let mut output = serde_json::Map::new();
-    output.insert("pid".to_owned(), serde_json::json!(pid));
+    output.insert("pid".to_owned(), serde_json::json!(pid.to_string()));
     if let Some(hostname) = hostname {
         output.insert("hostname".to_owned(), serde_json::json!(hostname));
     }
@@ -311,26 +311,40 @@ struct EventVisitor {
     other_fields: Vec<(&'static str, serde_json::Value)>,
 }
 
+impl EventVisitor {
+    fn record<T: ToString>(&mut self, field: &tracing::field::Field, value: T) {
+        self.other_fields
+            .push((field.name(), serde_json::Value::String(value.to_string())))
+    }
+}
+
 impl Visit for EventVisitor {
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.other_fields.push((field.name(), value.into()))
+        self.record(field, value);
     }
 
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.other_fields.push((field.name(), value.into()))
+        self.record(field, value);
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.other_fields.push((field.name(), value.into()))
+        self.record(field, value);
+    }
+
+    fn record_i128(&mut self, field: &Field, value: i128) {
+        self.record(field, value);
+    }
+
+    fn record_u128(&mut self, field: &Field, value: u128) {
+        self.record(field, value);
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.other_fields
-            .push((field.name(), value.trim_matches('"').into()))
+        self.record(field, value);
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.other_fields.push((field.name(), value.into()))
+        self.record(field, value);
     }
 
     fn record_bytes(&mut self, field: &tracing::field::Field, value: &[u8]) {
