@@ -161,7 +161,7 @@ where
             severity: map_severity(*event.metadata().level()),
             time: Self::now(),
             message,
-            labels: map_labels(visitor.other_fields, self.pid, self.hostname.as_deref()),
+            labels: Some(map_labels(visitor.other_fields, self.pid, self.hostname.as_deref())),
             source_location: map_source_location(
                 event.metadata().file(),
                 event.metadata().module_path(),
@@ -191,7 +191,7 @@ where
                 "[{} - START]",
                 attrs.metadata().name().to_uppercase()
             )),
-            labels: map_labels(visitor.other_fields, self.pid, self.hostname.as_deref()),
+            labels: Some(map_labels(visitor.other_fields, self.pid, self.hostname.as_deref())),
             source_location: map_source_location(
                 attrs.metadata().file(),
                 attrs.metadata().module_path(),
@@ -232,7 +232,7 @@ where
             severity: map_severity(*meta.level()),
             time: Self::now(),
             message: Cow::Owned(format!("[{} - END]", meta.name().to_uppercase())),
-            labels: map_labels(labels, self.pid, self.hostname.as_deref()),
+            labels: Some(map_labels(labels, self.pid, self.hostname.as_deref())),
             source_location: map_source_location(meta.file(), meta.module_path(), meta.line()),
             ..Default::default()
         };
@@ -266,20 +266,28 @@ fn map_source_location(
     }
 }
 
+fn push_field_as_string(
+    fields: &mut Vec<(&'static str, serde_json::Value)>,
+    field: &Field,
+    value: impl ToString,
+) {
+    fields.push((field.name(), serde_json::Value::String(value.to_string())));
+}
+
 fn map_labels(
     labels: Vec<(&'static str, serde_json::Value)>,
     pid: u32,
     hostname: Option<&str>,
-) -> Option<serde_json::Map<String, serde_json::Value>> {
+) -> serde_json::Map<String, serde_json::Value> {
     let mut output = serde_json::Map::new();
-    output.insert("pid".to_owned(), serde_json::json!(pid.to_string()));
+    output.insert("pid".to_owned(), serde_json::Value::String(pid.to_string()));
     if let Some(hostname) = hostname {
         output.insert("hostname".to_owned(), serde_json::json!(hostname));
     }
     for (key, value) in labels {
         output.insert(key.to_owned(), value);
     }
-    Some(output)
+    output
 }
 
 fn copy_parents_fields<'a, S>(
@@ -313,8 +321,7 @@ struct EventVisitor {
 
 impl EventVisitor {
     fn record<T: ToString>(&mut self, field: &tracing::field::Field, value: T) {
-        self.other_fields
-            .push((field.name(), serde_json::Value::String(value.to_string())))
+        push_field_as_string(&mut self.other_fields, field, value);
     }
 }
 
@@ -348,7 +355,7 @@ impl Visit for EventVisitor {
     }
 
     fn record_bytes(&mut self, field: &tracing::field::Field, value: &[u8]) {
-        self.other_fields.push((field.name(), value.into()))
+        self.record(field, format!("{value:?}"));
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn core::fmt::Debug) {
@@ -430,6 +437,8 @@ where
             let mut extensions = span.extensions_mut();
             if let Some(visitor) = extensions.get_mut::<SpanFields>() {
                 values.record(visitor);
+            } else {
+                debug_assert!(false, "SpanFields not found on span in on_record; this is a bug");
             }
         }
     }
@@ -442,8 +451,7 @@ struct SpanFields {
 
 impl SpanFields {
     fn record<T: ToString>(&mut self, field: &tracing::field::Field, value: T) {
-        self.fields
-            .push((field.name(), serde_json::Value::String(value.to_string())))
+        push_field_as_string(&mut self.fields, field, value);
     }
 }
 
@@ -453,6 +461,14 @@ impl Visit for SpanFields {
     }
 
     fn record_u64(&mut self, field: &Field, value: u64) {
+        self.record(field, value);
+    }
+
+    fn record_i128(&mut self, field: &Field, value: i128) {
+        self.record(field, value);
+    }
+
+    fn record_u128(&mut self, field: &Field, value: u128) {
         self.record(field, value);
     }
 
